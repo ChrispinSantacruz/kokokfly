@@ -6,14 +6,13 @@ import { Button } from "@/components/ui/button"
 import type { Level, GameProgress } from "@/app/page"
 import GameHUD from "@/components/game-hud"
 import Image from "next/image"
-import type { useAudio } from "@/hooks/use-audio"
+
 
 interface GameLevelProps {
   level: Level
   onGameOver: (score: number) => void
   onPause: () => void
   gameProgress: GameProgress
-  audio: ReturnType<typeof useAudio>
 }
 
 interface ObstacleData {
@@ -52,7 +51,7 @@ interface TrailParticle {
   size: number
 }
 
-export default function GameLevel({ level, onGameOver, onPause, gameProgress, audio }: GameLevelProps) {
+export default function GameLevel({ level, onGameOver, onPause, gameProgress }: GameLevelProps) {
   const [gameRunning, setGameRunning] = useState(true)
   const [score, setScore] = useState(0)
   const [player, setPlayer] = useState<PlayerData>({ x: 100, y: 300, velocityY: 0 })
@@ -89,10 +88,7 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
     }
   }, [gameOver, score, onGameOver])
 
-  // Reproducir música del nivel al iniciar
-  useEffect(() => {
-    audio.playLevelMusic(level)
-  }, [audio, level])
+
 
   const getPlayerImage = () => {
     if (level === "easy") {
@@ -521,7 +517,6 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
         if (checkCollision(playerRect as DOMRect, obstacleRect as DOMRect)) {
           setGameRunning(false)
           setShowCrashImage(true)
-          audio.playExplosionSound()
           setTimeout(() => {
             setShowCrashImage(false)
             setGameOver(true)
@@ -543,8 +538,7 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
     isHolding,
     generateObstacle,
     checkCollision,
-    addTrailParticle,
-    audio
+    addTrailParticle
   ])
 
   useEffect(() => {

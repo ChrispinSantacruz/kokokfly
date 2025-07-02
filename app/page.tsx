@@ -9,7 +9,7 @@ import Instructions from "@/components/instructions"
 import LevelSelect from "@/components/level-select"
 import GameLevel from "@/components/game-level"
 import VehicleCustomization from "@/components/vehicle-customization"
-import { useAudio } from "@/hooks/use-audio"
+
 
 export type GameState = "login" | "menu" | "instructions" | "levelSelect" | "customization" | "playing" | "gameOver"
 export type Level = "easy" | "hard"
@@ -43,8 +43,6 @@ export default function KokokFlyGame() {
     selectedUfo: 0,
   })
 
-  const audio = useAudio()
-
   useEffect(() => {
     // Load progress from localStorage
     const savedProgress = localStorage.getItem("kokok-fly-progress")
@@ -52,25 +50,6 @@ export default function KokokFlyGame() {
       setGameProgress(JSON.parse(savedProgress))
     }
   }, [])
-
-  // Manejar música según el estado del juego
-  useEffect(() => {
-    switch (gameState) {
-      case "login":
-      case "menu":
-      case "instructions":
-      case "levelSelect":
-      case "customization":
-        audio.playMenuMusic()
-        break
-      case "gameOver":
-        audio.playGameOverMusic()
-        break
-      case "playing":
-        // No iniciar música aquí, se maneja en el componente específico
-        break
-    }
-  }, [gameState, audio])
 
   const saveProgress = (newProgress: GameProgress) => {
     setGameProgress(newProgress)
@@ -152,7 +131,6 @@ export default function KokokFlyGame() {
               onPlay={() => setGameState("levelSelect")}
               onCustomization={() => setGameState("customization")}
               gameProgress={gameProgress}
-              audio={audio}
             />
           </motion.div>
         )}
@@ -200,7 +178,6 @@ export default function KokokFlyGame() {
               }}
               onBack={() => setGameState("menu")}
               gameProgress={gameProgress}
-              audio={audio}
             />
           </motion.div>
         )}
@@ -218,7 +195,6 @@ export default function KokokFlyGame() {
               onGameOver={handleGameOver}
               onPause={() => setGameState("menu")}
               gameProgress={gameProgress}
-              audio={audio}
             />
           </motion.div>
         )}

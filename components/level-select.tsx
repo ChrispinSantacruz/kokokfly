@@ -4,19 +4,17 @@ import { motion } from "framer-motion"
 import { ArrowLeft, Target, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { Level, GameProgress } from "@/app/page"
-import type { useAudio } from "@/hooks/use-audio"
+
 import Image from "next/image"
 
 interface LevelSelectProps {
   onSelectLevel: (level: Level) => void
   onBack: () => void
   gameProgress: GameProgress
-  audio: ReturnType<typeof useAudio>
 }
 
-export default function LevelSelect({ onSelectLevel, onBack, gameProgress, audio }: LevelSelectProps) {
+export default function LevelSelect({ onSelectLevel, onBack, gameProgress }: LevelSelectProps) {
   const handleButtonClick = (action: () => void) => {
-    audio.playButtonClickSound()
     action()
   }
   const levels = [
@@ -58,7 +56,6 @@ export default function LevelSelect({ onSelectLevel, onBack, gameProgress, audio
         >
           <Button
             onClick={() => handleButtonClick(onBack)}
-            onMouseEnter={() => audio.playButtonHoverSound()}
             className="bg-transparent border-2 border-cyan-400 text-cyan-400 hover:bg-cyan-400/20 hover:text-cyan-300 backdrop-blur-sm"
           >
             <ArrowLeft className="w-5 h-5 mr-2" />
@@ -78,7 +75,6 @@ export default function LevelSelect({ onSelectLevel, onBack, gameProgress, audio
                 transition={{ delay: index * 0.2, duration: 0.6 }}
                 className={`border-4 ${level.color} rounded-2xl p-6 backdrop-blur-sm bg-transparent hover:scale-105 transition-all duration-300 cursor-pointer group shadow-lg`}
                 onClick={() => handleButtonClick(() => onSelectLevel(level.id))}
-                onMouseEnter={() => audio.playButtonHoverSound()}
               >
                 <div className="text-center mb-6">
                   <div className="relative w-32 h-32 mx-auto mb-4">

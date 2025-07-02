@@ -4,7 +4,7 @@ import { motion } from "framer-motion"
 import { Trophy, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { User as UserType, GameProgress } from "@/app/page"
-import type { useAudio } from "@/hooks/use-audio"
+
 
 interface MainMenuProps {
   user: UserType
@@ -12,12 +12,10 @@ interface MainMenuProps {
   onPlay: () => void
   onCustomization: () => void
   gameProgress: GameProgress
-  audio: ReturnType<typeof useAudio>
 }
 
-export default function MainMenu({ user, onInstructions, onPlay, onCustomization, gameProgress, audio }: MainMenuProps) {
+export default function MainMenu({ user, onInstructions, onPlay, onCustomization, gameProgress }: MainMenuProps) {
   const handleButtonClick = (action: () => void) => {
-    audio.playButtonClickSound()
     action()
   }
   return (
@@ -83,7 +81,6 @@ export default function MainMenu({ user, onInstructions, onPlay, onCustomization
                 src="/images/buttons/play.png"
                 alt="Play"
                 onClick={() => handleButtonClick(onPlay)}
-                onMouseEnter={() => audio.playButtonHoverSound()}
                 className="w-full h-auto cursor-pointer transform hover:scale-105 transition-all duration-200 drop-shadow-lg"
               />
             </motion.div>
@@ -99,7 +96,6 @@ export default function MainMenu({ user, onInstructions, onPlay, onCustomization
                 src="/images/buttons/customize.png"
                 alt="Customize"
                 onClick={() => handleButtonClick(onCustomization)}
-                onMouseEnter={() => audio.playButtonHoverSound()}
                 className="w-full h-auto cursor-pointer transform hover:scale-105 transition-all duration-200 drop-shadow-lg"
               />
             </motion.div>
@@ -115,7 +111,6 @@ export default function MainMenu({ user, onInstructions, onPlay, onCustomization
                 src="/images/buttons/instructions.png"
                 alt="Instructions"
                 onClick={() => handleButtonClick(onInstructions)}
-                onMouseEnter={() => audio.playButtonHoverSound()}
                 className="w-full h-auto cursor-pointer transform hover:scale-105 transition-all duration-200 drop-shadow-lg"
               />
             </motion.div>
