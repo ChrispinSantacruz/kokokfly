@@ -92,3 +92,86 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+/* Optimizaciones para el juego y móvil */
+@layer utilities {
+  .touch-none {
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  .select-none {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+  }
+}
+
+/* Optimizaciones para rendimiento del juego */
+@layer base {
+  .game-container {
+    will-change: transform;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    perspective: 1000px;
+  }
+  
+  .game-element {
+    will-change: transform, opacity;
+    transform: translateZ(0);
+  }
+}
+
+/* Prevenir zoom y scroll en móvil durante el juego */
+@media (max-width: 768px) {
+  body {
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+  }
+  
+  * {
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  input, button, select, textarea {
+    -webkit-user-select: auto;
+  }
+  
+  /* Optimizaciones agresivas para móvil */
+  .game-container {
+    will-change: auto !important;
+    transform: none !important;
+    backface-visibility: visible !important;
+    perspective: none !important;
+  }
+  
+  .game-element {
+    will-change: auto !important;
+    transform: none !important;
+  }
+  
+  /* Deshabilitar animaciones costosas en móvil */
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  
+  /* Forzar hardware acceleration solo donde sea necesario */
+  .mobile-optimized {
+    transform: translateZ(0);
+    will-change: transform;
+  }
+}

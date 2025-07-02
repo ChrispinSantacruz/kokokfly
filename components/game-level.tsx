@@ -68,13 +68,19 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
   const lastObstacleRef = useRef(0)
   const gameAreaRef = useRef<HTMLDivElement>(null)
   const trailIdRef = useRef(0)
+  const lastTimeRef = useRef<number>(0)
+  const frameCountRef = useRef(0)
+  const isMobileRef = useRef(typeof window !== 'undefined' && window.innerWidth < 768)
 
   const GRAVITY = level === "easy" ? 0.3 : 0.5
   const JUMP_FORCE = level === "easy" ? -6 : -8
   const RISE_FORCE = level === "easy" ? -0.4 : 0
-  const PLAYER_SIZE = 85 // Reduced for better gameplay
+  const PLAYER_SIZE = 85
   const GAME_WIDTH = 1000
   const GAME_HEIGHT = 700
+  const TARGET_FPS = isMobileRef.current ? 30 : 60 // 30fps para móvil
+  const FIXED_DELTA = 1000 / TARGET_FPS
+  const MAX_PARTICLES = isMobileRef.current ? 5 : 20 // Menos partículas en móvil
 
   // Handle game over in separate effect
   useEffect(() => {
@@ -108,6 +114,9 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
 
   // Add trail particles
   const addTrailParticle = useCallback(() => {
+    // Solo agregar partículas en desktop
+    if (isMobileRef.current) return
+    
     if (level === "easy" && isHolding) {
       // Red trail for rocket when holding
       const newParticle: TrailParticle = {
@@ -117,7 +126,7 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
         opacity: 1,
         size: Math.random() * 8 + 4,
       }
-      setTrailParticles((prev) => [...prev, newParticle])
+      setTrailParticles((prev) => [...prev.slice(-MAX_PARTICLES + 1), newParticle])
     } else if (level === "hard") {
       // Blue trail for UFO always
       const newParticle: TrailParticle = {
@@ -127,9 +136,9 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
         opacity: 1,
         size: Math.random() * 6 + 3,
       }
-      setTrailParticles((prev) => [...prev, newParticle])
+      setTrailParticles((prev) => [...prev.slice(-MAX_PARTICLES + 1), newParticle])
     }
-  }, [level, isHolding, player.x, player.y])
+  }, [level, isHolding, player.x, player.y, MAX_PARTICLES])
 
   const handleInput = useCallback(
     (isPressed: boolean) => {
@@ -332,39 +341,64 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
     )
   }, [])
 
-  const gameLoop = useCallback(() => {
+  const gameLoop = useCallback((currentTime: number) => {
     if (!gameRunning || isPaused || gameOver) return
 
-    // Add trail particles
-    if (Math.random() < 0.3) {
+    // Calculate delta time for consistent frame rate
+    if (lastTimeRef.current === 0) {
+      lastTimeRef.current = currentTime
+    }
+    
+    const deltaTime = currentTime - lastTimeRef.current
+    lastTimeRef.current = currentTime
+    
+    // Limit delta time to prevent large jumps (if tab is inactive)
+    const clampedDelta = Math.min(deltaTime, FIXED_DELTA * 2)
+    const deltaMultiplier = clampedDelta / FIXED_DELTA
+
+    // Throttle frame rate más agresivo en móvil
+    frameCountRef.current++
+    const frameThreshold = isMobileRef.current ? FIXED_DELTA * 1.5 : FIXED_DELTA * 0.8
+    if (deltaTime < frameThreshold) {
+      gameLoopRef.current = requestAnimationFrame(gameLoop)
+      return
+    }
+
+    // Add trail particles (menos frecuente en móvil)
+    const particleFrequency = isMobileRef.current ? 8 : 3
+    if (frameCountRef.current % particleFrequency === 0 && Math.random() < 0.4) {
       addTrailParticle()
     }
 
-    // Update trail particles
-    setTrailParticles((prev) =>
-      prev
-        .map((particle) => ({
-          ...particle,
-          opacity: particle.opacity - 0.05,
-          y: particle.y + 2,
-          size: particle.size * 0.98,
-        }))
-        .filter((particle) => particle.opacity > 0),
-    )
+    // Update trail particles (solo en desktop o cada 2 frames en móvil)
+    if (!isMobileRef.current || frameCountRef.current % 2 === 0) {
+      setTrailParticles((prev) => {
+        const updated = prev
+          .map((particle) => ({
+            ...particle,
+            opacity: particle.opacity - (0.08 * deltaMultiplier), // Fade faster
+            y: particle.y + (3 * deltaMultiplier), // Move faster
+            size: particle.size * Math.pow(0.95, deltaMultiplier), // Shrink faster
+          }))
+          .filter((particle) => particle.opacity > 0.1 && particle.y < GAME_HEIGHT + 30)
+        
+        return updated.slice(-MAX_PARTICLES)
+      })
+    }
 
-    // Update player
+    // Update player with delta time
     setPlayer((prev) => {
-      let newY = prev.y + prev.velocityY
+      let newY = prev.y + (prev.velocityY * deltaMultiplier)
       let newVelocityY = prev.velocityY
 
       if (level === "easy") {
         if (isHolding) {
-          newVelocityY += RISE_FORCE
+          newVelocityY += RISE_FORCE * deltaMultiplier
         } else {
-          newVelocityY += GRAVITY
+          newVelocityY += GRAVITY * deltaMultiplier
         }
       } else {
-        newVelocityY += GRAVITY
+        newVelocityY += GRAVITY * deltaMultiplier
       }
 
       // Boundaries
@@ -381,49 +415,52 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
       return { ...prev, y: newY, velocityY: newVelocityY }
     })
 
-    // Update obstacles
+    // Update obstacles with simplified logic for mobile
     setObstacles((prev) => {
       let newScore = 0
-      const passedPairs = new Set<string>() // Para rastrear pares ya pasados
+      const passedPairs = new Set<string>()
 
       const updated = prev
         .map((obstacle) => {
           let updatedObstacle = { ...obstacle }
+          const speedMultiplier = gameSpeed * deltaMultiplier
 
-          if (level === "hard" && obstacle.type === "asteroid") {
-            if (obstacle.asteroidType === "blue") {
-              // Blue asteroids move steadily
-              updatedObstacle.x = obstacle.x - gameSpeed
-            } else if (obstacle.asteroidType === "red") {
-              // Red meteorites bounce chaotically
-              const newX = obstacle.x + (obstacle.velocityX || -gameSpeed)
-              const newY = obstacle.y + (obstacle.velocityY || 0)
-              let newVelocityY = obstacle.velocityY || 0
-
-              if (newY <= 0 || newY >= GAME_HEIGHT - obstacle.height) {
-                newVelocityY = -newVelocityY * 0.8
-              }
-
-              // Add random velocity changes for chaos
-              if (Math.random() < 0.04) {
-                newVelocityY += (Math.random() - 0.5) * 8
-              }
-
-              const angle = (obstacle.angle || 0) + (obstacle.spinSpeed || 0.1)
-
-              updatedObstacle = {
-                ...updatedObstacle,
-                x: newX,
-                y: Math.max(0, Math.min(GAME_HEIGHT - obstacle.height, newY)),
-                velocityY: newVelocityY,
-                angle,
-              }
-            } else if (obstacle.asteroidType === "purple1" || obstacle.asteroidType === "purple2") {
-              // Purple asteroids go direct and fast
-              updatedObstacle.x = obstacle.x + (obstacle.velocityX || -gameSpeed)
-            }
+          // Simplified movement for mobile
+          if (isMobileRef.current) {
+            updatedObstacle.x = obstacle.x - speedMultiplier
           } else {
-            updatedObstacle.x = obstacle.x - gameSpeed
+            // Full logic for desktop
+            if (level === "hard" && obstacle.type === "asteroid") {
+              if (obstacle.asteroidType === "blue") {
+                updatedObstacle.x = obstacle.x - speedMultiplier
+              } else if (obstacle.asteroidType === "red") {
+                const newX = obstacle.x + ((obstacle.velocityX || -gameSpeed) * deltaMultiplier)
+                const newY = obstacle.y + ((obstacle.velocityY || 0) * deltaMultiplier)
+                let newVelocityY = obstacle.velocityY || 0
+
+                if (newY <= 0 || newY >= GAME_HEIGHT - obstacle.height) {
+                  newVelocityY = -newVelocityY * 0.8
+                }
+
+                if (Math.random() < (0.04 * deltaMultiplier)) {
+                  newVelocityY += (Math.random() - 0.5) * 8
+                }
+
+                const angle = (obstacle.angle || 0) + ((obstacle.spinSpeed || 0.1) * deltaMultiplier)
+
+                updatedObstacle = {
+                  ...updatedObstacle,
+                  x: newX,
+                  y: Math.max(0, Math.min(GAME_HEIGHT - obstacle.height, newY)),
+                  velocityY: newVelocityY,
+                  angle,
+                }
+              } else if (obstacle.asteroidType === "purple1" || obstacle.asteroidType === "purple2") {
+                updatedObstacle.x = obstacle.x + ((obstacle.velocityX || -gameSpeed) * deltaMultiplier)
+              }
+            } else {
+              updatedObstacle.x = obstacle.x - speedMultiplier
+            }
           }
 
           // Check if obstacle was passed and gives points
@@ -431,29 +468,27 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
             updatedObstacle.passed = true
             
             if (level === "easy" && obstacle.type === "cityobstacle" && obstacle.pairId) {
-              // Solo contar 1 punto por par de edificios
               if (!obstacle.isScoreCounted && !passedPairs.has(obstacle.pairId)) {
                 passedPairs.add(obstacle.pairId)
-              newScore += 1
+                newScore += 1
               }
-              // Marcar como contado independientemente
               updatedObstacle.isScoreCounted = true
             } else if (level === "hard" && obstacle.givesPoints) {
-              newScore += 1 // Only blue asteroids give points
+              newScore += 1
             }
           }
 
           return updatedObstacle
         })
-        .filter((obstacle) => obstacle.x > -obstacle.width)
+        .filter((obstacle) => obstacle.x > -obstacle.width - 100)
 
       // Update score and speed
       if (newScore > 0) {
         setScore((prevScore) => {
           const totalScore = prevScore + newScore
           if (totalScore % 5 === 0 && totalScore <= 50) {
-            // Only increase speed until 50 points, then keep constant
-            setGameSpeed((current) => Math.min(current * 1.05, level === "easy" ? 6 : 8))
+            const maxSpeed = isMobileRef.current ? 5 : (level === "easy" ? 6 : 8)
+            setGameSpeed((current) => Math.min(current * 1.05, maxSpeed))
           }
           return totalScore
         })
@@ -462,9 +497,9 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
       return updated
     })
 
-    // Check collisions with adjusted hitboxes
-    const PLAYER_COLLISION_PADDING = 8 // Make player smaller for collision
-    const OBSTACLE_COLLISION_PADDING = 15 // Make obstacles smaller for collision
+    // Simplified collision detection for mobile
+    const PLAYER_COLLISION_PADDING = isMobileRef.current ? 12 : 8
+    const OBSTACLE_COLLISION_PADDING = isMobileRef.current ? 20 : 15
     
     const playerRect = {
       left: player.x + PLAYER_COLLISION_PADDING,
@@ -473,26 +508,27 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
       bottom: player.y + PLAYER_SIZE - PLAYER_COLLISION_PADDING,
     }
 
-    obstacles.forEach((obstacle) => {
-      // Adjust obstacle collision box to be more generous
-      const obstacleRect = {
-        left: obstacle.x + OBSTACLE_COLLISION_PADDING,
-        right: obstacle.x + obstacle.width - OBSTACLE_COLLISION_PADDING,
-        top: obstacle.y + OBSTACLE_COLLISION_PADDING,
-        bottom: obstacle.y + obstacle.height - OBSTACLE_COLLISION_PADDING,
-      }
+    // Check collisions less frequently on mobile
+    if (!isMobileRef.current || frameCountRef.current % 2 === 0) {
+      obstacles.forEach((obstacle) => {
+        const obstacleRect = {
+          left: obstacle.x + OBSTACLE_COLLISION_PADDING,
+          right: obstacle.x + obstacle.width - OBSTACLE_COLLISION_PADDING,
+          top: obstacle.y + OBSTACLE_COLLISION_PADDING,
+          bottom: obstacle.y + obstacle.height - OBSTACLE_COLLISION_PADDING,
+        }
 
-      if (checkCollision(playerRect as DOMRect, obstacleRect as DOMRect)) {
-        setGameRunning(false)
-        setShowCrashImage(true)
-        audio.playExplosionSound() // Reproducir sonido de explosión al colisionar
-        // Mostrar imagen de choque por 1 segundo antes del game over
-        setTimeout(() => {
-          setShowCrashImage(false)
-        setGameOver(true)
-        }, 1000)
-      }
-    })
+        if (checkCollision(playerRect as DOMRect, obstacleRect as DOMRect)) {
+          setGameRunning(false)
+          setShowCrashImage(true)
+          audio.playExplosionSound()
+          setTimeout(() => {
+            setShowCrashImage(false)
+            setGameOver(true)
+          }, 1000)
+        }
+      })
+    }
 
     generateObstacle()
     gameLoopRef.current = requestAnimationFrame(gameLoop)
@@ -508,6 +544,7 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
     generateObstacle,
     checkCollision,
     addTrailParticle,
+    audio
   ])
 
   useEffect(() => {
@@ -562,6 +599,7 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
 
   useEffect(() => {
     if (gameRunning && !isPaused && !gameOver) {
+      lastTimeRef.current = 0 // Reset timing on game start
       gameLoopRef.current = requestAnimationFrame(gameLoop)
     }
 
@@ -572,25 +610,79 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
     }
   }, [gameLoop, gameRunning, isPaused, gameOver])
 
+  // Cleanup on component unmount
+  useEffect(() => {
+    // Detectar móvil de manera más precisa
+    const checkMobile = () => {
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                      window.innerWidth < 768 ||
+                      ('ontouchstart' in window)
+      isMobileRef.current = isMobile
+    }
+    
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    
+    return () => {
+      if (gameLoopRef.current) {
+        cancelAnimationFrame(gameLoopRef.current)
+      }
+      window.removeEventListener('resize', checkMobile)
+      // Reset references
+      lastTimeRef.current = 0
+      frameCountRef.current = 0
+      // Clear particles for better performance
+      setTrailParticles([])
+      setObstacles([])
+    }
+  }, [])
+
+  // Reset game state cuando cambia el nivel
+  useEffect(() => {
+    setTrailParticles([])
+    setObstacles([])
+    setScore(0)
+    setPlayer({ x: 100, y: 300, velocityY: 0 })
+    setGameSpeed(level === "easy" ? 3 : 4)
+    lastTimeRef.current = 0
+    frameCountRef.current = 0
+    lastObstacleRef.current = 0
+  }, [level])
+
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col select-none touch-none">
       <GameHUD score={score} level={level} onPause={() => setIsPaused(true)} onBack={onPause} />
 
-      <div className="flex-1 flex items-center justify-center p-4">
+      <div className="flex-1 flex items-center justify-center p-2 sm:p-4">
         <div
           ref={gameAreaRef}
-          className={`relative w-full max-w-5xl aspect-[10/7] rounded-2xl overflow-hidden border-4 border-yellow-400 ${getBackgroundStyle()}`}
-          style={
-            level === "easy" 
-              ? { backgroundImage: `url('/images/leveleasy.png')` }
-              : { backgroundImage: `url('/images/space-background.jpg')` }
-          }
+          className={`relative w-full max-w-5xl rounded-2xl overflow-hidden border-4 border-yellow-400 ${getBackgroundStyle()} aspect-[16/12] md:aspect-[10/7] ${isMobileRef.current ? 'mobile-optimized' : 'game-container'}`}
+          style={{
+            backgroundImage: level === "easy" 
+              ? `url('/images/leveleasy.png')` 
+              : `url('/images/space-background.jpg')`,
+            touchAction: 'none',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+            MozUserSelect: 'none',
+            msUserSelect: 'none',
+            WebkitTouchCallout: 'none',
+            WebkitTapHighlightColor: 'transparent',
+            // Optimizaciones específicas para móvil
+            ...(isMobileRef.current && {
+              willChange: 'auto',
+              transform: 'none',
+              backfaceVisibility: 'visible'
+            })
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+          onDragStart={(e) => e.preventDefault()}
         >
-          {/* Trail Particles */}
-          {trailParticles.map((particle) => (
+          {/* Trail Particles - Solo en desktop */}
+          {!isMobileRef.current && trailParticles.map((particle) => (
             <div
               key={particle.id}
-              className={`absolute rounded-full ${
+              className={`absolute rounded-full game-element ${
                 level === "easy"
                   ? "bg-gradient-to-r from-red-500 to-orange-500"
                   : "bg-gradient-to-r from-blue-500 to-cyan-500"
@@ -601,7 +693,7 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
                 width: `${(particle.size / GAME_WIDTH) * 100}%`,
                 height: `${(particle.size / GAME_HEIGHT) * 100}%`,
                 opacity: particle.opacity,
-                boxShadow:
+                boxShadow: isMobileRef.current ? 'none' :
                   level === "easy"
                     ? `0 0 ${particle.size}px rgba(255, 0, 0, ${particle.opacity * 0.5})`
                     : `0 0 ${particle.size}px rgba(0, 100, 255, ${particle.opacity * 0.5})`,
@@ -611,74 +703,89 @@ export default function GameLevel({ level, onGameOver, onPause, gameProgress, au
 
           {/* Player */}
           <motion.div
-            className="absolute z-10"
+            className={`absolute z-10 ${isMobileRef.current ? '' : 'game-element'}`}
             style={{
               left: `${(player.x / GAME_WIDTH) * 100}%`,
               top: `${(player.y / GAME_HEIGHT) * 100}%`,
               width: `${(PLAYER_SIZE / GAME_WIDTH) * 100}%`,
               height: `${(PLAYER_SIZE / GAME_HEIGHT) * 100}%`,
             }}
-            animate={{
+            animate={isMobileRef.current ? false : {
               rotate: Math.max(-30, Math.min(30, player.velocityY * 3)),
             }}
-            transition={{ duration: 0.1 }}
+            transition={isMobileRef.current ? { duration: 0 } : { duration: 0.1 }}
           >
-            <Image src={getPlayerImage() || "/placeholder.svg"} alt="Kokok" fill className="object-contain" />
+            <Image 
+              src={getPlayerImage() || "/placeholder.svg"} 
+              alt="Kokok" 
+              fill 
+              className="object-contain" 
+              priority={true}
+              quality={isMobileRef.current ? 75 : 90}
+            />
           </motion.div>
-
-
 
           {/* Obstacles */}
           {obstacles.map((obstacle) => (
             <div key={obstacle.id}>
-              {/* Imagen del obstáculo (más grande para edificios de ciudad) */}
+              {/* Imagen del obstáculo */}
             <div
-              className="absolute"
+              className="absolute game-element"
               style={{
                 left: `${(obstacle.x / GAME_WIDTH) * 100}%`,
                   top: obstacle.type === "cityobstacle" && obstacle.cityObstacleType?.includes("floor") 
-                    ? `${((obstacle.y - 50) / GAME_HEIGHT) * 100}%` // Floor buildings extend downward
+                    ? `${((obstacle.y - 50) / GAME_HEIGHT) * 100}%`
                     : obstacle.type === "cityobstacle" && obstacle.cityObstacleType?.includes("air")
-                    ? `${((obstacle.y - 30) / GAME_HEIGHT) * 100}%` // Air buildings extend upward
+                    ? `${((obstacle.y - 30) / GAME_HEIGHT) * 100}%`
                     : `${(obstacle.y / GAME_HEIGHT) * 100}%`,
                 width: `${(obstacle.width / GAME_WIDTH) * 100}%`,
                   height: obstacle.type === "cityobstacle" && obstacle.cityObstacleType?.includes("floor")
-                    ? `${((obstacle.height + 80) / GAME_HEIGHT) * 100}%` // Floor buildings taller
+                    ? `${((obstacle.height + 80) / GAME_HEIGHT) * 100}%`
                     : obstacle.type === "cityobstacle" && obstacle.cityObstacleType?.includes("air")
-                    ? `${((obstacle.height + 60) / GAME_HEIGHT) * 100}%` // Air buildings taller
+                    ? `${((obstacle.height + 60) / GAME_HEIGHT) * 100}%`
                     : `${(obstacle.height / GAME_HEIGHT) * 100}%`,
-                transform: obstacle.angle ? `rotate(${obstacle.angle * 180}deg)` : undefined,
+                transform: isMobileRef.current ? undefined : 
+                  (obstacle.angle ? `rotate(${obstacle.angle * 180}deg)` : undefined),
               }}
             >
               {obstacle.type === "building" ? (
-                <div className="w-full h-full bg-gradient-to-b from-gray-600 to-gray-800 border-2 border-gray-500 shadow-lg" />
+                <div className={`w-full h-full ${isMobileRef.current ? 
+                  'bg-gray-700' : 
+                  'bg-gradient-to-b from-gray-600 to-gray-800 border-2 border-gray-500 shadow-lg'}`} />
                 ) : obstacle.type === "cityobstacle" ? (
                   <Image 
                     src={obstacle.imageUrl || "/placeholder.svg"} 
                     alt="City Obstacle" 
                     fill 
                     className="object-cover" 
+                    priority={!isMobileRef.current}
                   />
               ) : (
-                <Image src={obstacle.imageUrl || "/placeholder.svg"} alt="Asteroid" fill className="object-contain" />
+                <Image 
+                  src={obstacle.imageUrl || "/placeholder.svg"} 
+                  alt="Asteroid" 
+                  fill 
+                  className="object-contain" 
+                  priority={!isMobileRef.current}
+                />
               )}
               </div>
-
             </div>
           ))}
 
           {/* Crash Image at Player Position */}
           {showCrashImage && (
             <motion.div
-              initial={{ opacity: 0, scale: 0.5 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="absolute z-50"
+              initial={isMobileRef.current ? {} : { opacity: 0, scale: 0.5 }}
+              animate={isMobileRef.current ? {} : { opacity: 1, scale: 1 }}
+              className="absolute z-50 game-element"
               style={{
                 left: `${(player.x / GAME_WIDTH) * 100}%`,
                 top: `${(player.y / GAME_HEIGHT) * 100}%`,
                 width: `${(PLAYER_SIZE * 2 / GAME_WIDTH) * 100}%`,
                 height: `${(PLAYER_SIZE * 2 / GAME_HEIGHT) * 100}%`,
-                transform: 'translate(-50%, -50%)'
+                transform: 'translate(-50%, -50%)',
+                opacity: isMobileRef.current ? 1 : undefined
               }}
             >
               <Image
